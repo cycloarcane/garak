@@ -1,13 +1,19 @@
 {
-  "endpoint": "http://127.0.0.1:5000/v1/completions",
-  "method": "POST",
-  "model": "gpt-4o",
-  "headers": {
-    "Content-Type": "application/json"
-  },
-  "payload": {
-    "prompt": "{{input}}",
-    "max_tokens": 100
-  },
-  "response_path": "choices[0].text"
+  "rest": {
+     "RestGenerator": {
+        "name": "Local Model",
+        "uri": "http://127.0.0.1:5000/v1/completions",
+        "method": "post",
+        "headers": {
+           "Content-Type": "application/json"
+        },
+        "req_template_json_object": {
+           "prompt": "$INPUT",
+           "max_tokens": 100,
+           "temperature": 0.7
+        },
+        "response_json": true,
+        "response_json_field": "choices[0].text"
+     }
+  }
 }
