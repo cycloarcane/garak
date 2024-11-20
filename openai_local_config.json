@@ -1,0 +1,13 @@
+{
+  "endpoint": "http://127.0.0.1:5000/v1/completions",
+  "method": "POST",
+  "model": "gpt-4o",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "payload": {
+    "prompt": "{{input}}",
+    "max_tokens": 100
+  },
+  "response_path": "choices[0].text"
+}
