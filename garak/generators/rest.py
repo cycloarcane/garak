@@ -30,6 +30,7 @@ class RestGenerator(Generator):
         "headers": {},
         "method": "post",
         "ratelimit_codes": [429],
+        "skip_codes": [],
         "response_json": False,
         "response_json_field": None,
         "req_template": "$INPUT",
@@ -55,6 +56,7 @@ class RestGenerator(Generator):
         "req_template_json_object",
         "request_timeout",
         "ratelimit_codes",
+        "skip_codes",
         "temperature",
         "top_k",
     )
@@ -121,27 +123,12 @@ class RestGenerator(Generator):
             try:
                 self.json_expr = jsonpath_ng.parse(self.response_json_field)
             except JsonPathParserError as e:
-                logging.CRITICAL(
+                logging.critical(
                     "Couldn't parse response_json_field %s", self.response_json_field
                 )
                 raise e
 
         super().__init__(self.name, config_root=config_root)
-
-    def _get_nested_value(self, obj, path):
-        """Helper method to get nested dictionary values using a path string."""
-        try:
-            current = obj
-            parts = path.replace("][", "].").replace("[", ".").replace("]", "").split(".")
-            for part in parts:
-                if part.isdigit():
-                    current = current[int(part)]
-                else:
-                    current = current[part]
-            return current
-        except (KeyError, IndexError, TypeError) as e:
-            logging.error(f"Failed to access path '{path}' in object: {e}")
-            return None
 
     def _validate_env_var(self):
         key_match = "$KEY"
@@ -208,30 +195,43 @@ class RestGenerator(Generator):
             "timeout": self.request_timeout,
         }
         resp = self.http_function(self.uri, **req_kArgs)
-        if resp.status_code in self.ratelimit_codes:
-            raise RateLimitHit(f"Rate limited: {resp.status_code} - {resp.reason}, uri: {self.uri}")
 
-        elif str(resp.status_code)[0] == "3":
+        if resp.status_code in self.skip_codes:
+            logging.debug(
+                "REST skip prompt: %s - %s, uri: %s",
+                resp.status_code,
+                resp.reason,
+                self.uri,
+            )
+            return [None]
+
+        if resp.status_code in self.ratelimit_codes:
+            raise RateLimitHit(
+                f"Rate limited: {resp.status_code} - {resp.reason}, uri: {self.uri}"
+            )
+
+        if str(resp.status_code)[0] == "3":
             raise NotImplementedError(
                 f"REST URI redirection: {resp.status_code} - {resp.reason}, uri: {self.uri}"
             )
 
-        elif str(resp.status_code)[0] == "4":
+        if str(resp.status_code)[0] == "4":
             raise ConnectionError(
                 f"REST URI client error: {resp.status_code} - {resp.reason}, uri: {self.uri}"
             )
 
-        elif str(resp.status_code)[0] == "5":
+        if str(resp.status_code)[0] == "5":
             error_msg = f"REST URI server error: {resp.status_code} - {resp.reason}, uri: {self.uri}"
             if self.retry_5xx:
                 raise IOError(error_msg)
-            else:
-                raise ConnectionError(error_msg)
+            raise ConnectionError(error_msg)
 
         if not self.response_json:
             return [str(resp.text)]
 
         response_object = json.loads(resp.content)
+
+        response = [None]
 
         # if response_json_field starts with a $, treat is as a JSONPath
         assert (
@@ -247,12 +247,7 @@ class RestGenerator(Generator):
             if isinstance(response_object, list):
                 response = [item[self.response_json_field] for item in response_object]
             else:
-                value = self._get_nested_value(response_object, self.response_json_field)
-                if value is not None:
-                    response = [value]
-                else:
-                    logging.error(f"Could not find field '{self.response_json_field}' in response: {response_object}")
-                    return [None]
+                response = [response_object[self.response_json_field]]
         else:
             field_path_expr = jsonpath_ng.parse(self.response_json_field)
             responses = field_path_expr.find(response_object)
